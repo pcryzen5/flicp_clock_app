@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base href="$FLUTTER_BASE_HREF">
+
+  <meta charset="UTF-8">
+  <meta content="IE=Edge" http-equiv="X-UA-Compatible">
+  <meta name="description" content="PomoFocus Pro - Beautiful, Modern Pomodoro & Productivity Timer built with Flutter.">
+
+  <!-- iOS meta tags & icons -->
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="PomoFocus">
+  <link rel="apple-touch-icon" href="icons/Icon-192.png">
+
+  <!-- Favicon -->
+  <link rel="icon" type="image/png" href="favicon.png"/>
+
+  <title>PomoFocus Pro - Modern Pomodoro & Productivity Timer</title>
+  <link rel="manifest" href="manifest.json">
+
+  <style>
+    body {
+      background-color: #0b0f19;
+      margin: 0;
+      padding: 0;
+      overflow: hidden;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    }
+  </style>
+
+  <script>
+    // Procedural Web Audio Synthesizer for Chimes & Ambient Focus Sounds
+    let audioCtx = null;
+    let ambientSource = null;
+    let ambientGain = null;
+    let ambientTimer = null;
+
+    function getAudioContext() {
+      if (!audioCtx) {
+        const AudioContext = window.AudioContext || window.webkitAudioContext;
+        audioCtx = new AudioContext();
+      }
+      if (audioCtx.state === 'suspended') {
+        audioCtx.resume();
+      }
+      return audioCtx;
+    }
+
+    window.playPomodoroSound = function(type) {
+      try {
+        const ctx = getAudioContext();
+        const now = ctx.currentTime;
+
+        if (type === 'finish') {
+          // Harmonious meditation bell chord (C5, G5, C6)
+          const freqs = [523.25, 659.25, 783.99, 1046.50];
+          freqs.forEach((freq, idx) => {
+            const osc = ctx.createOscillator();
+            const gain = ctx.createGain();
+            osc.type = 'sine';
+            osc.frequency.setValueAtTime(freq, now + idx * 0.12);
+            gain.gain.setValueAtTime(0, now + idx * 0.12);
+            gain.gain.linearRampToValueAtTime(0.18, now + idx * 0.12 + 0.05);
+            gain.gain.exponentialRampToValueAtTime(0.0001, now + idx * 0.12 + 2.8);
+            osc.connect(gain);
+            gain.connect(ctx.destination);
+            osc.start(now + idx * 0.12);
+            osc.stop(now + idx * 0.12 + 3.0);
+          });
+        } else if (type === 'start') {
+          // Gentle warm start chime
+          const osc = ctx.createOscillator();
+          const gain = ctx.createGain();
+          osc.type = 'sine';
+          osc.frequency.setValueAtTime(440, now);
+          osc.frequency.exponentialRampToValueAtTime(660, now + 0.25);
+          gain.gain.setValueAtTime(0, now);
+          gain.gain.linearRampToValueAtTime(0.15, now + 0.04);
+          gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.5);
+          osc.connect(gain);
+          gain.connect(ctx.destination);
+          osc.start(now);
+          osc.stop(now + 0.55);
+        } else if (type === 'click') {
+          // Tactile wooden tick
+          const osc = ctx.createOscillator();
+          const gain = ctx.createGain();
+          osc.type = 'triangle';
+          osc.frequency.setValueAtTime(800, now);
+          gain.gain.setValueAtTime(0.06, now);
+          gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.04);
+          osc.connect(gain);
+          gain.connect(ctx.destination);
+          osc.start(now);
+          osc.stop(now + 0.05);
+        }
+      } catch (e) {
+        console.warn('Web Audio error:', e);
+      }
+    };
+
+    window.stopAmbientSound = function() {
+      if (ambientSource) {
+        try { ambientSource.stop(); } catch(e){}
+        ambientSource = null;
+      }
+      if (ambientTimer) {
+        clearInterval(ambientTimer);
+        ambientTimer = null;
+      }
+    };
+
+    window.playAmbientSound = function(soundType, volume) {
+      window.stopAmbientSound();
+      if (soundType === 'off' || volume <= 0) return;
+
+      try {
+        const ctx = getAudioContext();
+        ambientGain = ctx.createGain();
+        ambientGain.gain.setValueAtTime(volume * 0.25, ctx.currentTime);
+        ambientGain.connect(ctx.destination);
+
+        if (soundType === 'white_noise' || soundType === 'rain') {
+          // Generate 5-second loop of brown/pink noise
+          const bufferSize = ctx.sampleRate * 5;
+          const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
+          const data = buffer.getChannelData(0);
+          let lastOut = 0.0;
+          for (let i = 0; i < bufferSize; i++) {
+            const white = Math.random() * 2 - 1;
+            // Brown noise approximation
+            lastOut = (lastOut + (0.02 * white)) / 1.02;
+            data[i] = lastOut * (soundType === 'rain' ? 3.5 : 2.5);
+          }
+
+          const noise = ctx.createBufferSource();
+          noise.buffer = buffer;
+          noise.loop = true;
+
+          const filter = ctx.createBiquadFilter();
+          filter.type = 'lowpass';
+          filter.frequency.setValueAtTime(soundType === 'rain' ? 750 : 450, ctx.currentTime);
+
+          noise.connect(filter);
+          filter.connect(ambientGain);
+          noise.start();
+          ambientSource = noise;
+        } else if (soundType === 'tick') {
+          ambientTimer = setInterval(() => {
+            try {
+              const now = ctx.currentTime;
+              const osc = ctx.createOscillator();
+              const g = ctx.createGain();
+              osc.type = 'sine';
+              osc.frequency.setValueAtTime(1200, now);
+              g.gain.setValueAtTime(volume * 0.08, now);
+              g.gain.exponentialRampToValueAtTime(0.0001, now + 0.025);
+              osc.connect(g);
+              g.connect(ctx.destination);
+              osc.start(now);
+              osc.stop(now + 0.03);
+            } catch(e){}
+          }, 1000);
+        }
+      } catch (e) {
+        console.warn('Ambient Audio error:', e);
+      }
+    };
+  </script>
+</head>
+<body>
+  <script src="flutter_bootstrap.js" async></script>
+</body>
+</html>
